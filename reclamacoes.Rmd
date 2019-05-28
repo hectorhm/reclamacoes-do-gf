@@ -1,0 +1,69 @@
+---
+title: "Tipos de filme de Liam Neeson"
+author: "Hector Medeiros"
+output:
+  html_document:
+    code_folding: "hide"
+    theme: flatly
+    toc: yes
+    toc_depth: 5
+    toc_float:
+      collapsed: no
+    df_print: paged
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(dplyr)
+library(tidytext)
+library(tm)
+require(cowplot)
+library(plotly)
+knitr::opts_chunk$set(tidy = FALSE, fig.width = 8, fig.height = 6, echo = TRUE)
+```
+
+```{r}
+avaliacoes <- read_csv("data/3-avaliacao-humana/reclamacoes-avaliadas-20190515.csv")
+
+
+glimpse(avaliacoes)
+
+anatel = avaliacoes %>% 
+    filter(orgao == "ANATEL")
+
+ans = avaliacoes %>% 
+    filter(orgao == "ANS")
+
+medias_anatel = avaliacoes %>% 
+    filter(orgao == "ANATEL") %>% 
+    summarise(media = mean(insatisfacao),mediana = median(insatisfacao),dp = sd(insatisfacao) )
+
+  
+
+medias_ans = avaliacoes %>% 
+    filter(orgao == "ANS") %>% 
+    summarise(media = mean(insatisfacao),mediana = median(insatisfacao),dp = sd(insatisfacao) )
+
+medias_anatel
+medias_ans
+
+```
+
+```{r}
+q <-avaliacoes %>%
+    ggplot(aes(x = orgao, y = insatisfacao)) +
+    geom_jitter(aes(text = paste("Titulo:", titulo)), width = .1, alpha = .4, color = 'deepskyblue1')+
+  geom_boxplot(coef=1000, width = .2) +
+  labs(title = "Notas nas respostas de Insatisfação",
+         x = "Orgão",
+         y = "Avaliação numa escala de 1 a 5")
+
+ggplotly(q)
+```
+
+Analisando as distribuições do grau de insatisfação entre os dois órgãos é possível perceber que o grau de instisfação em reclamações que envolvem a ANATEL  possuem valores mais baixos se  comparados com a as reclamações envolvendo a ANS, as reclamações da Anatel encontram-se mais próximas a mediana já as da ANS estão mais distribuídas no conjunto.
+
+
+
+
