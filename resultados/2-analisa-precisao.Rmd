@@ -15,87 +15,276 @@ theme_set(theme_bw())
 ## Os dados
 
 ```{r carrega}
-reclamacoes_raw = read_csv(here("data/reclamacoes-raw/reclamacoes-raw.csv"))
-avaliacoes_raw = read_csv(here("data/avaliacoes/avaliacoes-20180222.csv"))
-sentimentos = read_csv(here("data/sentimentos/sentimento.csv"))
 
-reclamacoes_raw = reclamacoes_raw %>% 
-    mutate(id = 1:n(), 
-           comprimento_reclamacao = str_length(reclamacao), 
-           nome_orgao = str_split(link, "/") %>% map_chr(~ .[[5]]))
+reclamacoes = read_csv(here("data/3-avaliacao-humana/reclamacoes-avaliadas-20190515.csv"))
+
+reclamacoes = reclamacoes %>%
+            select(id, orgao, data, titulo, texto, grupo_avaliando = 'Grupo que vai avaliar', insatisfacao, avaliadores, range.avaliacoes)
+
+
+sentimentos = read_csv(here("data/4-estimativa-automatica/sentimento.csv"))
+
+reclamacoes <- reclamacoes %>% mutate(comprimento_titulo = str_length(titulo))
+reclamacoes = reclamacoes %>% mutate(comprimento_reclamacao = str_length(texto))
 ```
 
 `reclamacoes_l` tem um formato long em vez de wide (explicado [aqui](https://sejdemyr.github.io/r-tutorials/basics/wide-and-long/)).
 
 ```{r junta}
-avaliacoes = avaliacoes_raw %>% 
-    group_by(id_reclamação) %>% 
-    summarise(insatisfação = median(insatisfação), 
-              avaliadores = n())
-
-reclamacoes = reclamacoes_raw %>% 
-    inner_join(avaliacoes, by = c("id" = "id_reclamação")) %>% 
+reclamacoes = reclamacoes %>% 
     left_join(sentimentos, by = "id")
 
+
 reclamacoes_l = reclamacoes %>%  
-    select(-palavras_op30, -palavras_sent) %>% 
+    select(-palavras_op30, -palavras_sent, -grupo_avaliando) %>% 
     gather(key = "lexico", 
            value = "polaridade", 
            sentimento_op30, sentimento_sent)
 
+
 ```
 
-Converte polaridades para escala 0-5
+Funções usada durante o projeto
+```{r}
+normaliza = function(lexico, polaridade) {
+    if(lexico == "sentimento_op30"){
+        return ((((polaridade - minimo_op30)/(maximo_op30 - minimo_op30)) * -4) + 5)
+    } else {
+        return ((((polaridade - minimo_sent)/(maximo_sent - minimo_sent)) * -4) + 5)
+    }
+}
+```
+
+Converte polaridades para escala 1-5
 
 ```{r}
+maximo_op30 = max(sentimentos %>%  select(sentimento_op30))
+minimo_op30 = min(sentimentos %>%  select(sentimento_op30))
+maximo_sent = max(sentimentos %>%   select(sentimento_sent))
+minimo_sent = min(sentimentos %>%   select(sentimento_sent))
+
 # Faça você mesmo. Crie a variável polaridade_normalizada
-# reclamacoes_l = reclamacoes_l %>% 
-#     group_by(lexico) %>% 
-#     mutate(polaridade_normalizada = ALGOAQUI)
+
+reclamacoes_polarizada = reclamacoes_l %>% 
+     mutate(polaridade_normalizada = normaliza(lexico, polaridade))
+
 ```
 
-Calcula o erro por reclamação
+Calcula o erro (SSE) por reclamação. (Erro quadático).
 
 ```{r}
-reclamacoes_l = reclamacoes_l %>% 
-    mutate(erro = (insatisfação - polaridade_normalizada)**2)
+reclamacoes_polarizada = reclamacoes_polarizada %>% 
+    mutate(erro = (insatisfacao - polaridade_normalizada) ** 2 )
+
+tabela_op30 = reclamacoes_polarizada %>% filter(lexico.dummy == 0) 
+media_erro_op30 = mean(tabela_op30$erro)
+mediana_erro_op30 = median(tabela_op30$erro)
+desvio_padrao_erro_op30 = sd(tabela_op30$erro)
+
+tabela_sent =  reclamacoes_polarizada %>% filter(lexico.dummy == 1)
+media_erro_sent = mean(tabela_sent$erro)
+mediana_erro_sent = median(tabela_sent$erro)
+desvio_padrao_erro_sent = sd(tabela_sent$erro)
+
+wilcox.test(tabela_op30$erro, tabela_sent$erro, paired = TRUE)
 ```
 
 
 ## EDA
 
-Inicial. Faça os gráficos a mais que achar necessário para entender os dados que temos de resultado.
+Inicial. Faça os gráficos a mais que achar necessário para entender os dados que temos de resultado. Lembrando de nossa questão: Quão eficazes são os métodos de análise de sentimento baseados em léxicos para estimar o nível de insatisfação de reclamações recebidas pelo reclameaqui do governo federal? Existe um exemplo de EDA no repositório. Uma decisão importante a ser usada é se vamos considerar as avaliações humanas onde houve muita discordância sobre o nível de insatisfação.
+
+### Questionamentos:
+1) Há diferença no tamanho da reclamação por cada órgão?
+```{r}
+reclamacoes_polarizada %>% 
+  filter(complete.cases(.)) %>% 
+  ggplot(aes(fill = orgao, x = comprimento_reclamacao), na.rm = TRUE) + 
+  geom_histogram(binwidth = 50, na.rm = TRUE) + 
+  facet_grid(orgao ~ .)
+
+reclamacoes_polarizada %>% group_by(orgao) %>% 
+  ggplot(aes(x = reorder(orgao, comprimento_reclamacao), y=comprimento_reclamacao)) + geom_boxplot(aes(fill=orgao))
+  
+reclamacoes_anatel <- reclamacoes_polarizada %>% filter(orgao=="ANATEL")
+reclamacoes_ans <- reclamacoes_polarizada %>% filter(orgao=="ANS")
+
+mean(reclamacoes_anatel$comprimento_reclamacao)
+mean(reclamacoes_ans$comprimento_reclamacao)
+
+wilcox.test(reclamacoes_anatel$comprimento_reclamacao, reclamacoes_ans$comprimento_reclamacao, paired = TRUE)
+
+```
+Observando os gráficos gerados é possível ver que  há uma pequena diferença dos tamanhos das reclamações por órgão. A ANATEL, em média, tem as reclamações com maior descrição.
+
+2) Os tamanhos das reclamações ou títulos têm alguma relação com o nível de insatisfação de acordo com o tipo de avaliação (Humana, sent, op30)?
+```{r}
+reclamacoes %>% ggplot(aes(x = insatisfacao, y = comprimento_reclamacao)) + geom_point()
+```
+
+```{r}
+reclamacoes %>% ggplot(aes(x = insatisfacao, y= comprimento_titulo)) + geom_point()
+```
+
+```{r}
+normalizado_sent = reclamacoes %>%  
+    select(id,data, sentimento_sent, comprimento_reclamacao, comprimento_titulo) %>% 
+    mutate(normalizada_sent = normaliza("sentimento_sent", sentimento_sent))
+
+normalizado_op30 = reclamacoes %>%  
+    select(id,data, sentimento_op30, comprimento_reclamacao, comprimento_titulo) %>% 
+    mutate(normalizada_op30 = normaliza("sentimento_op30", sentimento_op30))
+```
+
+# Analise de correlação entre os comprimentos dos títulos das reclamações e os níveis de insatisfação dependendo do método de avaliação
+```{r}
+par(mfrow = c(2,2))
+plot(reclamacoes_polarizada$comprimento_titulo ~ reclamacoes_polarizada$insatisfacao)
+plot(normalizado_sent$comprimento_titulo ~ normalizado_sent$normalizada_sent)
+plot(normalizado_op30$comprimento_titulo ~ normalizado_op30$normalizada_op30)
+
+cor.test(reclamacoes_polarizada$comprimento_titulo, reclamacoes_polarizada$insatisfacao, method='spearman')
+cor.test(normalizado_sent$comprimento_titulo, normalizado_sent$normalizada_sent, method='spearman')
+cor.test(normalizado_op30$comprimento_titulo, normalizado_op30$normalizada_op30, method='spearman')
+```
+
+# Analise de correlação entre os comprimentos das reclamações e os níveis de insatisfação dependendo do método de avaliação
+```{r}
+par(mfrow = c(2,2))
+plot(reclamacoes_polarizada$comprimento_reclamacao ~ reclamacoes_polarizada$insatisfacao)
+plot(normalizado_sent$comprimento_reclamacao ~ normalizado_sent$normalizada_sent)
+plot(normalizado_op30$comprimento_reclamacao ~ normalizado_op30$normalizada_op30)
+
+cor.test(reclamacoes_polarizada$comprimento_reclamacao, reclamacoes_polarizada$insatisfacao, method='spearman')
+cor.test(normalizado_sent$comprimento_reclamacao, normalizado_sent$normalizada_sent, method='spearman')
+cor.test(normalizado_op30$comprimento_reclamacao, normalizado_op30$normalizada_op30, method='spearman')
+```
+
+```{r}
+## Gráficos que apresentam Avaliação gerada pelo sentimento normalizado(op30 ou sent) x Comprimento da descrição da reclamação
+normalizado_sent %>%  ggplot(aes(x = normalizada_sent, y = comprimento_reclamacao)) + geom_point()
+```
+
+```{r}
+normalizado_op30 %>% ggplot(aes(x = normalizada_op30, y= comprimento_titulo)) + geom_point()
+```
+
+```{r}
+## Gráfico que apresenta Avaliação gerada pelo sentimento normalizado(op30 ou sent) x Comprimento do título
+normalizado_sent %>%  ggplot(aes(x = normalizada_sent, y = comprimento_titulo)) + geom_point()
+```
+```{r}
+normalizado_op30 %>% ggplot(aes(x = normalizada_op30, y= comprimento_titulo)) + geom_point()
+```
+Analisando os gráficos, é possível analisar que não há uma relação muito grande entre o tamanho do texto e a insatisfação. Já que as maiores descrições estão entre 2 e 3,5. 
+
+3) Quais os dias na semana tiveram mais reclamações?
+
+```{r}
+renomeiaDias = function (data) {
+  return (strsplit(data,", ")[[1]][1])
+}
+dias = reclamacoes %>% group_by(data) %>% summarise(dia = renomeiaDias(data),
+                                                    insatisfacao = insatisfacao) %>% select(dia,insatisfacao)
+
+diasOp30 = normalizado_op30 %>% group_by(data) %>% summarise(dia = renomeiaDias(data),
+                                                    normalizada_op30 = normalizada_op30) %>% select(dia,normalizada_op30)
+
+diasSent = normalizado_sent %>% group_by(data) %>% summarise(dia = renomeiaDias(data),
+                                                    normalizada_sent = normalizada_sent) %>% select(dia,normalizada_sent)
+
+mediaPorDia = dias %>% group_by(dia) %>% summarise(media = mean(insatisfacao))
+mediaPorDiaOp30 = diasOp30 %>% group_by(dia) %>% summarise(media = mean(normalizada_op30))
+mediaPorDiaSent = diasSent %>% group_by(dia) %>% summarise(media = mean(normalizada_sent))
+
+
+numeroDias = dias %>% group_by(dia) %>% summarise(num = n())
+```
+
+```{r}
+numeroDias %>% ggplot(aes(x=dia, y=num)) + geom_bar(stat="identity")
+```
+Aqui podemos observar a frequência de reclamações ao longo do dia, podemos ver que o dia com mais reclamações é a segunda feira, agora vamos analisar em qual dia da semana temos as reclamações com maior nível de insatisfação fazendo a médias das reclamações diárias
+
+4)  o nível de insatisfação foi maior durante os finais de semana ?
+```{r}
+# Usando o nível de insatisfacao por avaliação humana
+mediaPorDia %>% ggplot(aes(x=dia, y=media)) + geom_bar(stat="identity")
+
+# Analisando variabilidade
+dias %>% ggplot(aes(x=dia, y=insatisfacao)) +
+  geom_boxplot(aes(fill=dia)) +
+  scale_x_discrete(labels= c("Domingo", "Quarta", "Quinta", "Sábado", "Segunda", "Sexta", "Terça"))
+```
+
+```{r} 
+# Mediana por dia
+medianaPorDia = dias %>% group_by(dia) %>% summarise(mediana = median(insatisfacao))
+medianaPorDiaOp30 = diasOp30 %>% group_by(dia) %>% summarise(mediana = median(normalizada_op30))
+medianaPorDiaSent = diasSent %>% group_by(dia) %>% summarise(mediana = median(normalizada_sent))
+
+medianaPorDia
+medianaPorDiaOp30
+medianaPorDiaSent
+
+par(mfrow = c(2,2))
+medianaPorDia %>% ggplot(aes(x=dia, y=mediana)) + geom_bar(stat="identity")
+medianaPorDiaOp30 %>% ggplot(aes(x=dia, y=mediana)) + geom_bar(stat="identity")
+medianaPorDiaSent %>% ggplot(aes(x=dia, y=mediana)) + geom_bar(stat="identity")
+```
+
+```{r}
+# Usando o nível de insatisfacao por avaliação do op30
+mediaPorDiaOp30 %>% ggplot(aes(x=dia, y=media)) + geom_bar(stat="identity")
+```
+
+```{r}
+# Usando o nível de insatisfacao por avaliação do sent
+mediaPorDiaSent %>% ggplot(aes(x=dia, y=media)) + geom_bar(stat="identity")
+```
+Podemos observar que em ambos os gráficos gerados, existe uma distribuição bem uniforme quanto as reclamações, quebrando um mito de que a insatisfação ocorra justamente nos finais de semana :)
+(qualquer dia é dia de ficar insatisfeito)
+
+###Como avaliar a eficácia dos métodos?  
+Uma medida interessante da eficiência desses métodos é calcular a soma dos erros ao quadrado (SSE) considerando o que o método definiu como a polaridade_normalizada e o que a avaliação humana definiu como a insatisfação.
 
 ```{r}
 reclamacoes %>% 
     ggplot(aes(x = sentimento_op30, y = sentimento_sent)) + 
-    geom_abline(slope = 1, intercept = 0, color = "grey") + 
+    geom_abline(slope = 1, intercept = 0, color = "blue") + 
     geom_count(alpha = .7) 
+
 ```
 
 ```{r}
-reclamacoes_l %>% 
-    ggplot(aes(x = insatisfação, y = polaridade_normalizada, group = insatisfação)) + 
+reclamacoes_polarizada %>% 
+    ggplot(aes(x = insatisfacao, y = polaridade_normalizada, group = insatisfacao)) + 
+    geom_abline(slope = 1, intercept = 0, color = "grey") + 
     geom_jitter(alpha = .7)  + 
     facet_wrap(~ lexico)
 
-reclamacoes_l %>% 
-    ggplot(aes(x = insatisfação, y = erro, group = insatisfação)) + 
+reclamacoes_polarizada %>% 
+    ggplot(aes(x = insatisfacao, y = erro, group = insatisfacao)) + 
     geom_jitter(alpha = .5)  +
-    # geom_boxplo() + 
+    #geom_boxplot() + 
     facet_wrap(~ lexico)
 ```
 
 
-## Há relação entre o léxico e a precisão/erro?
+## Há relação entre o léxico e o erro?
 
 Agora um modelo para responder sua pergunta.
 
 ```{r}
-
+#Cria variável dummy para preditor categórico
+reclamacoes_polarizada = reclamacoes_polarizada %>% mutate(lexico.dummy = if_else(lexico == "sentimento_sent", 1, 0))
+#Você precisa entender o que fez acima para interpretar sua regressão
+#Você pode também criar uma variável dummy para o órgao (se anac ou inss)
+reclamacoes_polarizada = reclamacoes_polarizada %>% mutate(orgao.dummy = if_else(orgao == "ANS", 1, 0))
+# ggpairs(reclamacoes_l %>% select(<selecione as colulas que vc quer usar aqui>))
+# lm1 = lm(<seu modelo>)
 ```
 
 **Dica** - o texto de resultado que queremos produzir é algo como: 
 
 Regressão múltipla foi utilizada para analisar se VarIndep1 e VarIndep2 tem uma associação significativa com o erro na estimativa de instatisfação da reclemação. Os resultados da regressão indicam que um modelo com os 2 preditores no formato Erro = XXX.VarIndep1 + YYY.VarIndep2 explicam XX,XX% da variância da variável de resposta (R2 = XX,XX). VarIndep1, medida como/em [unidade ou o que é o 0 e o que é 1] tem uma relação significativa com o erro (b = [yy,yy;  zz,zz], IC com 95%), assim como VarIndep2 medida como [unidade ou o que é o 0 e o que é 1] (b = [yy,yy;  zz,zz], IC com 95%). O aumento de 1 unidade de VarIndep1 produz uma mudança de...
-

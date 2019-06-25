@@ -1,15 +1,7 @@
 ---
 title: "Tipos de filme de Liam Neeson"
-author: "Hector Medeiros"
-output:
-  html_document:
-    code_folding: "hide"
-    theme: flatly
-    toc: yes
-    toc_depth: 5
-    toc_float:
-      collapsed: no
-    df_print: paged
+author: "Eri Jonhson Oliveira,Hector Medeiros, João Pedro, Wesley Anibal"
+output: html_document  
 ---
 
 ```{r}
@@ -20,10 +12,16 @@ library(tidytext)
 library(tm)
 require(cowplot)
 library(plotly)
+library(gridExtra)
+library(stringr)
+library(tidytext)
+library(lexiconPT)
+data("sentiLex_lem_PT02")
+data("oplexicon_v3.0")
 knitr::opts_chunk$set(tidy = FALSE, fig.width = 8, fig.height = 6, echo = TRUE)
 ```
 
-```{r}
+```{r warning = FALSE, message = FALSE, error = FALSE, echo = FALSE}
 avaliacoes <- read_csv("data/3-avaliacao-humana/reclamacoes-avaliadas-20190515.csv")
 
 
@@ -50,7 +48,35 @@ medias_ans
 
 ```
 
+
 ```{r}
+ avaliacoes %>%
+  filter(orgao == "ANS") %>% 
+  ggplot(aes(x = insatisfacao)) +
+  geom_histogram() +
+  labs(title = "Notas nas respostas de Insatisfação na ANS",
+         x = "Respostas",
+         y = "Avaliação numa escala de 1 a 5 ")
+
+ avaliacoes %>%
+  filter(orgao == "ANATEL") %>% 
+  ggplot(aes(x = insatisfacao)) +
+  geom_histogram() +
+  labs(title = "Notas nas respostas de Insatisfação na Anatel",
+         x = "Respostas",
+         y = "Avaliação numa escala de 1 a 5 ")
+
+```
+
+```{r}
+avaliacoes %>%
+    ggplot(aes(x = insatisfacao, y= orgao, color = orgao )) +
+    geom_jitter(aes(text = paste("Titulo:", titulo)), width = .1, alpha = .4)
+```
+
+
+
+```{r warning = FALSE, message = FALSE, error = FALSE, echo = FALSE}
 q <-avaliacoes %>%
     ggplot(aes(x = orgao, y = insatisfacao)) +
     geom_jitter(aes(text = paste("Titulo:", titulo)), width = .1, alpha = .4, color = 'deepskyblue1')+
@@ -62,8 +88,25 @@ q <-avaliacoes %>%
 ggplotly(q)
 ```
 
+Considerando que os valores dispostos no conjunto não possuem outliers, ou seja, elementos que fazem com que a média sofra uma alteração anômala então o uso da média para a inferência de dados é uma boa medida a ser tomada.Mas, visando uma visualização acerca da distruibuição das questões analisadas, utilizamos um boxplot, que nos mostra como se encontra a distribuição dos pontos de insatisfação nos orgãos indicados.
+
+
 Analisando as distribuições do grau de insatisfação entre os dois órgãos é possível perceber que o grau de instisfação em reclamações que envolvem a ANATEL  possuem valores mais baixos se  comparados com a as reclamações envolvendo a ANS, as reclamações da Anatel encontram-se mais próximas a mediana já as da ANS estão mais distribuídas no conjunto.
 
 
+```{r}
+op30 <- oplexicon_v3.0
+sent <- sentiLex_lem_PT02
 
+glimpse(op30)
+glimpse(sent)
+```
+
+```{r}
+df_comments_unnested <- avaliacoes %>% unnest_tokens(term, message)
+
+df_comments_unnested %>%
+  select(id, term) %>%
+  head(20)
+```
 

@@ -15,12 +15,12 @@ Escrever introdução aqui
 ## Os dados
 
 ```{r}
-reclamacoes_raw = read_csv(here("data/1-reclamacoes-selecionadas/20180605-reclamacoes-selecionadas.csv"), 
+reclamacoes_raw = read_csv(here("data/1-reclamacoes-selecionadas/20190515-reclamacoes-selecionadas.csv"), 
                           col_types = "cccccii")
 
 reclamacoes = reclamacoes_raw %>% 
-    mutate(comprimento = str_length(reclamacao), 
-           palavras_caps = str_count(reclamacao, "\\b[A-Z]{3,}\\b"))
+    mutate(comprimento = str_length(titulo), 
+           palavras_caps = str_count(titulo, "\\b[A-Z]{3,}\\b"))
 
 glimpse(reclamacoes)
 
@@ -34,6 +34,12 @@ glimpse(reclamacoes)
 # 
 # glimpse(avaliacoes)
 ```
+
+```{r}
+
+```
+
+
 
 ```{r}
 reclamacoes %>% 
@@ -53,9 +59,9 @@ reclamacoes %>%
 
 ```{r}
 avaliacoes %>% 
-    group_by(id_reclamacao) %>% 
+    group_by(id) %>% 
     count() %>% 
-    ggplot(aes("Reclamações", n)) + 
+    ggplot(aes("Titulo", n)) + 
     geom_jitter(width = .05, alpha = .7) + 
     labs(x = "", 
          y = "Número de avaliadores")
