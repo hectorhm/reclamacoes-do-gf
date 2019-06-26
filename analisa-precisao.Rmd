@@ -117,6 +117,30 @@ reclamacoes_l %>%
 ```
 
 
+```{r}
+preditores <- reclamacoes_l %>% 
+  group_by(lexico) %>% 
+  summarise(sumErro = sum(erro))
+
+
+data_sent <- reclamacoes_l %>% 
+  filter(lexico == "sentimento_sent") %>% 
+  select(id, orgao, polaridade_normalizada, erro, insatisfacao)
+
+data_op30 <- reclamacoes_l %>% 
+  filter(lexico == "sentimento_op30") %>% 
+  select(id, orgao, polaridade_normalizada, erro, insatisfacao)
+
+reg_sent <- lm(insatisfacao ~ polaridade_normalizada, data_sent)
+reg_op30 <- lm(insatisfacao ~ polaridade_normalizada, data_op30)
+
+summary(reg_sent)
+summary(reg_op30)
+
+
+```
+
+
 
 ```{r}
 #Cria variável dummy para preditor categórico
